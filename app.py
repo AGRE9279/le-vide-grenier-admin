@@ -9,25 +9,36 @@ import pandas as pd
 import streamlit as st
 from supabase import create_client
 
-st.set_page_config(page_title="Le Vide-Grenier — Équipe", page_icon="🏷️", layout="wide")
+from pathlib import Path
 
-URL = st.secrets["SUPABASE_URL"]
-KEY = st.secrets["SUPABASE_KEY"]
+ICONE = Path(__file__).with_name("logo_icone.png")
+st.set_page_config(page_title="Le Vide-Grenier — Équipe",
+                   page_icon=str(ICONE) if ICONE.exists() else "🏷️", layout="wide")
 
-CATEGORIES = {
-    "habits": "Habits et chaussures",
-    "maison": "Maison et cuisine",
-    "electronique": "Électronique",
-    "ecole_enfants": "École et enfants",
-    "autre": "Autre",
-}
-ETATS = {"neuf": "Neuf", "bon": "Bon état", "use": "Usé"}
-FORMULES = {"depot": "Dépôt-vente (15 %, min. 500 FCFA)", "domicile": "Vente vérifiée à domicile (20 %, min. 1 000 FCFA)"}
-STATUTS_OBJET = {
-    "propose": "Proposé", "refuse": "Refusé", "verifie": "Vérifié", "publie": "Publié",
-    "reserve": "Réservé", "vendu": "Vendu (sous garantie)", "vendeur_paye": "Vendeur payé", "rendu": "Rendu au vendeur",
-}
-ROLES = {"garant": "Garant", "admin": "Admin", "verificateur": "Vérificateur", "livreur": "Livreur"}
+BLEU, ORANGE = "#14365A", "#F08A24"
+MARQUE_SVG = (
+    '<svg width="{t}" height="{t}" viewBox="0 0 140 126" role="img" aria-label="Logo Le Vide-Grenier">'
+    f'<path d="M8 58 L70 10 L132 58" fill="none" stroke="{ORANGE}" stroke-width="12" '
+    'stroke-linecap="round" stroke-linejoin="round"/>'
+    f'<rect x="24" y="52" width="92" height="66" rx="10" fill="{BLEU}"/>'
+    '<text x="70" y="102" text-anchor="middle" font-family="\'Baloo 2\', sans-serif" font-weight="800" '
+    'font-size="46" fill="#FFFFFF">VG</text></svg>'
+)
+
+
+def logo(grand=True):
+    """Logo piste B : le toit du grenier au-dessus de VG."""
+    t, nom, sous = (84, 46, 12) if grand else (48, 26, 9)
+    st.markdown(
+        "<style>@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap');</style>"
+        f'<div style="display:flex;align-items:center;gap:{t // 5}px;margin-bottom:8px">'
+        + MARQUE_SVG.format(t=t) +
+        '<div style="display:flex;flex-direction:column;line-height:1">'
+        f'<span style="font-family:\'Baloo 2\',sans-serif;font-weight:800;font-size:{nom}px;color:{BLEU}">Le Vide-Grenier</span>'
+        f'<span style="font-weight:600;font-size:{sous}px;letter-spacing:2px;text-transform:uppercase;color:#9A4A06;margin-top:4px">'
+        'Les bonnes affaires de la maison</span></div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ---------- Outils ----------
@@ -122,7 +133,8 @@ def texte_annonce(o):
 # ---------- Connexion ----------
 
 def ecran_connexion():
-    st.title("🏷️ Le Vide-Grenier — Espace équipe")
+    logo(grand=True)
+    st.subheader("Espace équipe")
     st.caption("Réservé à l'équipe du Vide-Grenier.")
     t1, t2 = st.tabs(["Se connecter", "Première connexion : créer mon mot de passe"])
     with t1:
@@ -511,7 +523,7 @@ PAGES = {
     "👥 Équipe": page_equipe,
 }
 with st.sidebar:
-    st.markdown("### 🏷️ Le Vide-Grenier")
+    logo(grand=False)
     st.write(f"{m['nom']} · {ROLES[m['role']]}")
     page = st.radio("Menu", list(PAGES), label_visibility="collapsed")
     if st.button("Se déconnecter"):

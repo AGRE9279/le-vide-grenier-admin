@@ -41,6 +41,25 @@ def logo(grand=True):
     )
 
 
+URL = st.secrets["SUPABASE_URL"]
+KEY = st.secrets["SUPABASE_KEY"]
+
+CATEGORIES = {
+    "habits": "Habits et chaussures",
+    "maison": "Maison et cuisine",
+    "electronique": "Électronique",
+    "ecole_enfants": "École et enfants",
+    "autre": "Autre",
+}
+ETATS = {"neuf": "Neuf", "bon": "Bon état", "use": "Usé"}
+FORMULES = {"depot": "Dépôt-vente (15 %, min. 500 FCFA)", "domicile": "Vente vérifiée à domicile (20 %, min. 1 000 FCFA)"}
+STATUTS_OBJET = {
+    "propose": "Proposé", "refuse": "Refusé", "verifie": "Vérifié", "publie": "Publié",
+    "reserve": "Réservé", "vendu": "Vendu (sous garantie)", "vendeur_paye": "Vendeur payé", "rendu": "Rendu au vendeur",
+}
+ROLES = {"garant": "Garant", "admin": "Admin", "verificateur": "Vérificateur", "livreur": "Livreur"}
+
+
 # ---------- Outils ----------
 
 def sb():
@@ -142,12 +161,22 @@ def ecran_connexion():
             email = st.text_input("E-mail")
             mdp = st.text_input("Mot de passe", type="password")
             if st.form_submit_button("Se connecter", type="primary"):
+                res, erreur = None, None
                 try:
-                    res = sb().auth.sign_in_with_password({"email": email.strip(), "password": mdp})
+                    client = create_client(URL, KEY)  # client neuf à chaque tentative
+                    res = client.auth.sign_in_with_password({"email": email.strip(), "password": mdp})
+                except Exception as e:
+                    erreur = str(e)
+                if erreur is None and res is not None and res.user is not None:
+                    st.session_state.sb = client
                     st.session_state.user = res.user
                     st.rerun()
-                except Exception:
-                    st.error("E-mail ou mot de passe incorrect, ou e-mail pas encore confirmé.")
+                elif erreur and "invalid login" in erreur.lower():
+                    st.error("E-mail ou mot de passe incorrect.")
+                elif erreur and "not confirmed" in erreur.lower():
+                    st.error("E-mail pas encore confirmé : clique sur le lien reçu par e-mail.")
+                else:
+                    st.error(f"Connexion impossible. Détail technique : {erreur}")
     with t2:
         st.write("Utilise l'e-mail que le garant a inscrit dans l'équipe.")
         with st.form("inscription"):

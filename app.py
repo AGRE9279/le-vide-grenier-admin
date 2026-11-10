@@ -5,6 +5,7 @@ proposé -> vérifié -> publié -> réservé -> vendu (livré, sous garantie) -
 """
 import io
 import uuid
+from urllib.parse import quote
 from datetime import date, datetime, timezone
 
 import pandas as pd
@@ -167,6 +168,16 @@ def montrer_photos(photos, largeur=160):
         st.caption("Pas encore de photo.")
 
 
+def lien_whatsapp(o):
+    """Ouvre WhatsApp avec l'annonce déjà écrite : il reste à choisir le groupe et envoyer."""
+    return "https://wa.me/?text=" + quote(texte_annonce(o))
+
+
+def bouton_whatsapp(o, cle):
+    st.link_button("📲 Envoyer dans WhatsApp", lien_whatsapp(o), type="primary")
+    st.caption("WhatsApp s'ouvre avec l'annonce écrite : choisis le groupe, joins la photo si tu veux, puis Envoyer.")
+
+
 def texte_annonce(o):
     lignes = [
         f"🏷️ {o['code_vg']} – {o['titre']}",
@@ -276,18 +287,19 @@ def page_tableau_de_bord():
 def page_nouveau_depot():
     st.header("Nouveau dépôt")
     st.caption("Étape 1 du circuit : le vendeur propose son objet.")
-    pid, nouvelle = choisir_ou_creer_personne("vendeur", "Vendeur")
+    n = st.session_state.setdefault("depot_n", 0)  # change à chaque dépôt : le formulaire repart vide
+    pid, nouvelle = choisir_ou_creer_personne(f"vendeur{n}", "Vendeur")
     st.divider()
     c1, c2 = st.columns(2)
-    titre = c1.text_input("Objet (ex. : Téléphone Tecno Spark 10)")
-    categorie = c2.selectbox("Catégorie", list(CATEGORIES), format_func=CATEGORIES.get)
-    description = st.text_area("Description (marque, taille, couleur…)")
+    titre = c1.text_input("Objet (ex. : Téléphone Tecno Spark 10)", key=f"titre{n}")
+    categorie = c2.selectbox("Catégorie", list(CATEGORIES), format_func=CATEGORIES.get, key=f"cat{n}")
+    description = st.text_area("Description (marque, taille, couleur…)", key=f"desc{n}")
     c3, c4, c5 = st.columns(3)
-    etat = c3.selectbox("État annoncé", list(ETATS), format_func=ETATS.get, index=1)
-    formule = c4.selectbox("Formule", list(FORMULES), format_func=FORMULES.get)
-    prix = c5.number_input("Prix demandé par le vendeur (FCFA)", min_value=0, step=500)
+    etat = c3.selectbox("État annoncé", list(ETATS), format_func=ETATS.get, index=1, key=f"etat{n}")
+    formule = c4.selectbox("Formule", list(FORMULES), format_func=FORMULES.get, key=f"form{n}")
+    prix = c5.number_input("Prix demandé par le vendeur (FCFA)", min_value=0, step=500, key=f"prix{n}")
     est_appareil = st.checkbox("Appareil électrique ou téléphone (garantie 7 jours, test obligatoire)",
-                               value=categorie == "electronique")
+                               value=categorie == "electronique", key=f"app{n}_{categorie}")
     if prix:
         st.info(f"Si l'objet est vendu {fcfa(prix)} : commission {fcfa(commission(formule, prix))}, "
                 f"le vendeur reçoit {fcfa(prix - commission(formule, prix))}.")
@@ -302,6 +314,7 @@ def page_nouveau_depot():
             "prix_demande": int(prix) or None,
             "date_depot": date.today().isoformat() if formule == "depot" else None,
         }).execute().data[0]
+        st.session_state.depot_n = n + 1
         ok(f"Dépôt enregistré : écris **{o['code_vg']}** sur l'étiquette de l'objet.")
 
 
@@ -322,10 +335,11 @@ def page_verification():
             st.markdown("**Photos** (1 à 4, nettes, sur fond uni, défauts visibles)")
             montrer_photos(o.get("photos"))
             nouvelles = st.file_uploader("Prendre ou choisir des photos", type=["jpg", "jpeg", "png", "webp"],
-                                         accept_multiple_files=True, key=f"ph{k}")
+                                         accept_multiple_files=True, key=f"ph{k}_{st.session_state.get('photos_n', 0)}")
             if nouvelles and st.button("📷 Enregistrer les photos", key=f"bph{k}"):
                 with st.spinner("Envoi des photos…"):
                     envoyer_photos(o, nouvelles)
+                st.session_state.photos_n = st.session_state.get("photos_n", 0) + 1
                 ok(f"Photos de {o['code_vg']} enregistrées.")
             controles = [st.checkbox("Pièce d'identité du vendeur vue", value=o["vendeur"]["piece_identite_vue"], key=f"pi{k}")]
             imei, preuve = None, False
@@ -384,13 +398,17 @@ def page_publication():
                        f"Commission prévue : {fcfa(commission(o['formule'], o['prix_vente']))}")
             if st.button("Valider et publier", key=f"pub{o['id']}", type="primary"):
                 sb().table("objets").update({"statut": "publie", "valide_par": membre()["id"]}).eq("id", o["id"]).execute()
-                ok(f"{o['code_vg']} publié. Copie l'annonce dans le bon groupe WhatsApp.")
+                st.session_state.a_partager = o["id"]
+                ok(f"{o['code_vg']} publié. Dernière étape : clique sur « 📲 Envoyer dans WhatsApp ».")
 
     st.subheader("En vente actuellement")
     en_vente = sb().table("objets").select("*").eq("statut", "publie").order("created_at", desc=True).execute().data
+    a_partager = st.session_state.pop("a_partager", None)
     for o in en_vente:
-        with st.expander(f"{o['code_vg']} — {o['titre']} · {fcfa(o['prix_vente'])}"):
+        juste_publie = o["id"] == a_partager
+        with st.expander(f"{o['code_vg']} — {o['titre']} · {fcfa(o['prix_vente'])}", expanded=juste_publie):
             montrer_photos(o.get("photos"), largeur=140)
+            bouton_whatsapp(o, f"wa{o['id']}")
             st.code(texte_annonce(o), language=None)
 
 

@@ -14,6 +14,8 @@ from PIL import Image, ImageOps
 from supabase import create_client
 
 BUCKET_PHOTOS = "photos-objets"
+NUMERO_WHATSAPP = "2250595955803"        # numéro WhatsApp Business du Vide-Grenier (format international)
+NUMERO_AFFICHE = "05 95 95 58 03"
 MAX_PHOTOS = 4
 
 from pathlib import Path
@@ -188,7 +190,8 @@ def texte_annonce(o):
         lignes.append(f"ℹ️ {o['description']}")
     lignes += [
         f"🛡️ Vérifié par Le Vide-Grenier et garanti {garantie_txt(o['est_appareil'])}",
-        f"📲 Pour commander : écris « {o['code_vg']} » au numéro du Vide-Grenier",
+        f"📲 Pour commander, touchez ce lien : https://wa.me/{NUMERO_WHATSAPP}?text={quote('Je veux ' + o['code_vg'])}",
+        f"📞 Ou écrivez « {o['code_vg']} » au {NUMERO_AFFICHE}",
     ]
     return "\n".join(lignes)
 

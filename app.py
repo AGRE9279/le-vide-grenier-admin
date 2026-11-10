@@ -3,11 +3,17 @@
 Chaque vente suit le circuit garanti :
 proposé -> vérifié -> publié -> réservé -> vendu (livré, sous garantie) -> vendeur payé
 """
+import io
+import uuid
 from datetime import date, datetime, timezone
 
 import pandas as pd
 import streamlit as st
+from PIL import Image, ImageOps
 from supabase import create_client
+
+BUCKET_PHOTOS = "photos-objets"
+MAX_PHOTOS = 4
 
 from pathlib import Path
 
@@ -132,6 +138,33 @@ def enregistrer_personne(pid, nouvelle):
         st.error("Le nom et le téléphone sont obligatoires.")
         st.stop()
     return sb().table("personnes").insert(nouvelle).execute().data[0]["id"]
+
+
+def compresser_photo(fichier):
+    """Redresse, réduit à 1280 px et compresse en JPEG : économise les données mobiles."""
+    img = ImageOps.exif_transpose(Image.open(fichier)).convert("RGB")
+    img.thumbnail((1280, 1280))
+    tampon = io.BytesIO()
+    img.save(tampon, format="JPEG", quality=80, optimize=True)
+    return tampon.getvalue()
+
+
+def envoyer_photos(objet, fichiers):
+    """Envoie les photos dans Supabase Storage et les ajoute à l'objet. Renvoie la nouvelle liste."""
+    photos = list(objet.get("photos") or [])
+    for f in fichiers[: MAX_PHOTOS - len(photos)]:
+        chemin = f"{objet['code_vg']}/{uuid.uuid4().hex[:10]}.jpg"
+        sb().storage.from_(BUCKET_PHOTOS).upload(chemin, compresser_photo(f), {"content-type": "image/jpeg"})
+        photos.append(sb().storage.from_(BUCKET_PHOTOS).get_public_url(chemin).rstrip("?"))
+    sb().table("objets").update({"photos": photos}).eq("id", objet["id"]).execute()
+    return photos
+
+
+def montrer_photos(photos, largeur=160):
+    if photos:
+        st.image(photos, width=largeur)
+    else:
+        st.caption("Pas encore de photo.")
 
 
 def texte_annonce(o):
@@ -286,6 +319,14 @@ def page_verification():
             if o.get("description"):
                 st.write(o["description"])
             k = o["id"]
+            st.markdown("**Photos** (1 à 4, nettes, sur fond uni, défauts visibles)")
+            montrer_photos(o.get("photos"))
+            nouvelles = st.file_uploader("Prendre ou choisir des photos", type=["jpg", "jpeg", "png", "webp"],
+                                         accept_multiple_files=True, key=f"ph{k}")
+            if nouvelles and st.button("📷 Enregistrer les photos", key=f"bph{k}"):
+                with st.spinner("Envoi des photos…"):
+                    envoyer_photos(o, nouvelles)
+                ok(f"Photos de {o['code_vg']} enregistrées.")
             controles = [st.checkbox("Pièce d'identité du vendeur vue", value=o["vendeur"]["piece_identite_vue"], key=f"pi{k}")]
             imei, preuve = None, False
             if o["est_appareil"]:
@@ -303,6 +344,8 @@ def page_verification():
             if c1.button("✅ Conforme", key=f"ok{k}", type="primary"):
                 if not all(controles):
                     st.error("Tous les contrôles doivent être cochés pour déclarer l'objet conforme.")
+                elif not o.get("photos"):
+                    st.error("Ajoute au moins une photo et clique sur « Enregistrer les photos » avant de déclarer l'objet conforme.")
                 elif prix <= 0:
                     st.error("Indique le prix de vente.")
                 else:
@@ -334,7 +377,9 @@ def page_publication():
         st.success("Aucun objet en attente de publication.")
     for o in objets:
         with st.expander(f"{o['code_vg']} — {o['titre']} · {fcfa(o['prix_vente'])}", expanded=True):
+            montrer_photos(o.get("photos"), largeur=200)
             st.code(texte_annonce(o), language=None)
+            st.caption("Dans WhatsApp, joins ces photos à l'annonce (appui long sur une photo → enregistrer).")
             st.caption(f"Vendeur : {o['vendeur']['nom']} · Formule : {FORMULES[o['formule']]} · "
                        f"Commission prévue : {fcfa(commission(o['formule'], o['prix_vente']))}")
             if st.button("Valider et publier", key=f"pub{o['id']}", type="primary"):
@@ -345,6 +390,7 @@ def page_publication():
     en_vente = sb().table("objets").select("*").eq("statut", "publie").order("created_at", desc=True).execute().data
     for o in en_vente:
         with st.expander(f"{o['code_vg']} — {o['titre']} · {fcfa(o['prix_vente'])}"):
+            montrer_photos(o.get("photos"), largeur=140)
             st.code(texte_annonce(o), language=None)
 
 

@@ -265,6 +265,9 @@ def page_tableau_de_bord():
     objets = sb().table("objets").select("statut, date_fin_depot, code_vg, titre").execute().data
     commandes = sb().table("commandes").select("statut, fin_garantie").execute().data
     a_payer = sb().table("vendeurs_a_payer").select("*").execute().data
+    nouvelles = sb().table("propositions").select("id").eq("statut", "nouvelle").execute().data
+    if nouvelles:
+        st.warning(f"📨 {len(nouvelles)} nouvelle(s) proposition(s) de la vitrine à traiter (menu « Propositions »).")
     compte = lambda s: sum(1 for o in objets if o["statut"] == s)
 
     c = st.columns(5)
@@ -545,6 +548,51 @@ def page_vendeurs_a_payer():
         st.metric("Commissions encaissées (50 derniers paiements)", fcfa(df["Commission"].sum()))
 
 
+def numero_wa(tel):
+    chiffres = "".join(c for c in (tel or "") if c.isdigit())
+    if len(chiffres) == 10:
+        chiffres = "225" + chiffres
+    return chiffres
+
+
+def page_propositions():
+    st.header("Propositions de la vitrine")
+    st.caption("Messages envoyés par le public : « Je veux vendre » et « Je cherche ».")
+    filtre = st.radio("Afficher", ["À traiter", "Toutes"], horizontal=True, label_visibility="collapsed")
+    req = sb().table("propositions").select("*").order("created_at", desc=True)
+    if filtre == "À traiter":
+        req = req.in_("statut", ["nouvelle", "contactee"])
+    props = req.limit(100).execute().data
+    if not props:
+        st.success("Aucune proposition à traiter.")
+    etiquettes = {"nouvelle": "🆕 Nouvelle", "contactee": "📞 Contactée", "traitee": "✅ Traitée", "ignoree": "🚫 Ignorée"}
+    for pr in props:
+        genre = "💰 Veut vendre" if pr["type"] == "vendre" else "🔎 Cherche"
+        montant = f" · {'prix souhaité' if pr['type'] == 'vendre' else 'budget'} {fcfa(pr['prix'])}" if pr.get("prix") else ""
+        with st.expander(f"{etiquettes[pr['statut']]} — {genre} : {pr['texte'][:50]} — {pr['nom']}",
+                         expanded=pr["statut"] == "nouvelle"):
+            st.write(f"**{pr['nom']}** · {pr['telephone']}" + (f" · {pr['quartier']}" if pr.get("quartier") else ""))
+            st.write(f"{CATEGORIES.get(pr.get('categorie') or 'autre', 'Autre')}{montant}")
+            st.info(pr["texte"])
+            st.caption(f"Reçue le {jolie_date(pr['created_at'])}")
+            if pr["type"] == "vendre":
+                msg = f"Bonjour {pr['nom']}, c'est Le Vide-Grenier. Merci pour votre proposition ({pr['texte'][:60]}). Pouvez-vous nous envoyer une photo ?"
+            else:
+                msg = f"Bonjour {pr['nom']}, c'est Le Vide-Grenier. Nous avons bien noté votre recherche : {pr['texte'][:60]}."
+            st.link_button("💬 Lui écrire sur WhatsApp", f"https://wa.me/{numero_wa(pr['telephone'])}?text={quote(msg)}")
+            c1, c2, c3 = st.columns(3)
+            k = pr["id"]
+            if pr["statut"] == "nouvelle" and c1.button("📞 Contactée", key=f"pc{k}"):
+                sb().table("propositions").update({"statut": "contactee", "traitee_par": membre()["id"]}).eq("id", k).execute()
+                ok("Proposition marquée « contactée ».")
+            if pr["statut"] in ("nouvelle", "contactee") and c2.button("✅ Traitée", key=f"pt{k}"):
+                sb().table("propositions").update({"statut": "traitee", "traitee_par": membre()["id"]}).eq("id", k).execute()
+                ok("Proposition traitée." + (" Pense à enregistrer le dépôt dans « Nouveau dépôt »." if pr["type"] == "vendre" else ""))
+            if pr["statut"] in ("nouvelle", "contactee") and c3.button("🚫 Ignorer", key=f"pi{k}"):
+                sb().table("propositions").update({"statut": "ignoree", "traitee_par": membre()["id"]}).eq("id", k).execute()
+                ok("Proposition ignorée.")
+
+
 def page_registre():
     st.header("Registre")
     st.caption("Chaque changement d'étape est noté automatiquement, avec la date et la personne.")
@@ -609,6 +657,7 @@ if "membre" not in st.session_state:
 m = membre()
 PAGES = {
     "📊 Tableau de bord": page_tableau_de_bord,
+    "📨 Propositions": page_propositions,
     "📥 Nouveau dépôt": page_nouveau_depot,
     "🔍 Vérification": page_verification,
     "📢 Publication": page_publication,

@@ -1,4 +1,4 @@
-"""Le Vide-Grenier — tableau de bord de l'équipe (garant, admins, vérificateurs, livreurs).
+"""Le Black — tableau de bord de l'équipe (garant, admins, vérificateurs, livreurs).
 
 Chaque vente suit le circuit garanti :
 proposé -> vérifié -> publié -> réservé -> vendu (livré, sous garantie) -> vendeur payé
@@ -21,17 +21,17 @@ MAX_PHOTOS = 4
 from pathlib import Path
 
 ICONE = Path(__file__).with_name("logo_icone.png")
-st.set_page_config(page_title="Le Vide-Grenier — Équipe",
+st.set_page_config(page_title="Le Black — Équipe",
                    page_icon=str(ICONE) if ICONE.exists() else "🏷️", layout="wide")
 
 BLEU, ORANGE = "#14365A", "#F08A24"
 MARQUE_SVG = (
-    '<svg width="{t}" height="{t}" viewBox="0 0 140 126" role="img" aria-label="Logo Le Vide-Grenier">'
+    '<svg width="{t}" height="{t}" viewBox="0 0 140 126" role="img" aria-label="Logo Le Black">'
     f'<path d="M8 58 L70 10 L132 58" fill="none" stroke="{ORANGE}" stroke-width="12" '
     'stroke-linecap="round" stroke-linejoin="round"/>'
     f'<rect x="24" y="52" width="92" height="66" rx="10" fill="{BLEU}"/>'
     '<text x="70" y="102" text-anchor="middle" font-family="\'Baloo 2\', sans-serif" font-weight="800" '
-    'font-size="46" fill="#FFFFFF">VG</text></svg>'
+    'font-size="46" fill="#FFFFFF">LB</text></svg>'
 )
 
 
@@ -43,9 +43,9 @@ def logo(grand=True):
         f'<div style="display:flex;align-items:center;gap:{t // 5}px;margin-bottom:8px">'
         + MARQUE_SVG.format(t=t) +
         '<div style="display:flex;flex-direction:column;line-height:1">'
-        f'<span style="font-family:\'Baloo 2\',sans-serif;font-weight:800;font-size:{nom}px;color:{BLEU}">Le Vide-Grenier</span>'
+        f'<span style="font-family:\'Baloo 2\',sans-serif;font-weight:800;font-size:{nom}px;color:{BLEU}">Le Black</span>'
         f'<span style="font-weight:600;font-size:{sous}px;letter-spacing:2px;text-transform:uppercase;color:#9A4A06;margin-top:4px">'
-        'Les bonnes affaires de la maison</span></div></div>',
+        'Les bonnes affaires d’occasion</span></div></div>',
         unsafe_allow_html=True,
     )
 
@@ -205,7 +205,7 @@ def texte_annonce(o):
     if o.get("description"):
         lignes.append(f"ℹ️ {o['description']}")
     lignes += [
-        f"🛡️ Vérifié par Le Vide-Grenier et garanti {garantie_txt(o['est_appareil'])}",
+        f"🛡️ Vérifié par Le Black et garanti {garantie_txt(o['est_appareil'])}",
         f"📲 Pour commander, touchez ce lien : https://wa.me/{NUMERO_WHATSAPP}?text={quote('Je veux ' + o['code_vg'])}",
         f"📞 Ou écrivez « {o['code_vg']} » au {NUMERO_AFFICHE}",
     ]
@@ -217,7 +217,7 @@ def texte_annonce(o):
 def ecran_connexion():
     logo(grand=True)
     st.subheader("Espace équipe")
-    st.caption("Réservé à l'équipe du Vide-Grenier.")
+    st.caption("Réservé à l'équipe de Le Black.")
     t1, t2 = st.tabs(["Se connecter", "Première connexion : créer mon mot de passe"])
     with t1:
         with st.form("connexion"):
@@ -257,7 +257,7 @@ def charger_membre():
     user = st.session_state.user
     rows = sb().table("equipe").select("*").eq("user_id", user.id).execute().data
     if not rows or not rows[0]["actif"]:
-        st.error("Ton compte n'est pas (ou plus) dans l'équipe du Vide-Grenier. Demande au garant de t'ajouter.")
+        st.error("Ton compte n'est pas (ou plus) dans l'équipe de Le Black. Demande au garant de t'ajouter.")
         if st.button("Se déconnecter"):
             deconnexion()
         st.stop()
@@ -363,7 +363,7 @@ def page_verification():
                     continue
                 st.link_button("💬 Demander la vidéo de test au partenaire",
                                f"https://wa.me/{numero_wa(o['vendeur']['telephone'])}?text="
-                               + quote(f"Bonjour, c'est Le Vide-Grenier. Pour {o['code_vg']} ({o['titre']}), envoie-nous une courte vidéo qui montre l'objet en marche, sous tous les angles."))
+                               + quote(f"Bonjour, c'est Le Black. Pour {o['code_vg']} ({o['titre']}), envoie-nous une courte vidéo qui montre l'objet en marche, sous tous les angles."))
             st.write(f"Catégorie : {CATEGORIES[o['categorie']]} · État annoncé : {ETATS[o['etat']]} · "
                      f"Prix demandé : {fcfa(o['prix_demande'])}")
             if o.get("description"):
@@ -457,7 +457,7 @@ def page_publication():
 
 def page_commandes():
     st.header("Commandes")
-    st.caption("Étapes 4 à 6 : l'acheteur commande, paie Le Vide-Grenier, puis tu livres.")
+    st.caption("Étapes 4 à 6 : l'acheteur commande, paie Le Black, puis tu livres.")
     en_vente = sb().table("objets").select("id, code_vg, titre, prix_vente").eq("statut", "publie").order("code_vg").execute().data
     with st.expander("➕ Nouvelle commande", expanded=bool(en_vente)):
         if not en_vente:
@@ -491,17 +491,17 @@ def page_commandes():
             if o.get("commercial_id"):
                 part = o["vendeur"]
                 st.info(f"🤝 Objet d'un vendeur partenaire ({o['ville']['nom']}) : c'est **{part['nom']}** qui livre. "
-                        "L'acheteur paie toujours sur le compte du Vide-Grenier.")
+                        "L'acheteur paie toujours sur le compte de Le Black.")
                 if c["statut"] == "payee":
                     st.link_button("💬 Demander la livraison au partenaire",
                                    f"https://wa.me/{numero_wa(part['telephone'])}?text="
-                                   + quote(f"Bonjour, c'est Le Vide-Grenier. {o['code_vg']} ({o['titre']}) est payé. "
+                                   + quote(f"Bonjour, c'est Le Black. {o['code_vg']} ({o['titre']}) est payé. "
                                            f"Merci de le livrer à {c['acheteur']['nom']} ({c['acheteur']['telephone']}) "
                                            "et de cliquer sur « Livré » dans l'appli."))
             if c["statut"] == "reservee":
                 ref = st.text_input("Référence Mobile Money (ou « espèces »)", key=f"ref{k}")
                 b1, b2 = st.columns(2)
-                if b1.button("Paiement reçu sur le compte du Vide-Grenier", key=f"pay{k}", type="primary"):
+                if b1.button("Paiement reçu sur le compte de Le Black", key=f"pay{k}", type="primary"):
                     sb().table("commandes").update({"statut": "payee", "date_paiement": maintenant(),
                                                     "reference_paiement": ref or None}).eq("id", k).execute()
                     ok("Paiement enregistré.")
@@ -555,7 +555,7 @@ def page_garanties():
                     sb().table("reclamations").update({"decision": "acceptee", "traite_par": membre()["id"], "traitee_le": maintenant()}).eq("id", r["id"]).execute()
                     sb().table("commandes").update({"statut": "remboursee"}).eq("id", c["id"]).execute()
                     sb().table("objets").update({"statut": "rendu"}).eq("id", c["objet"]["id"]).execute()
-                    ok("Réclamation acceptée : rembourse l'acheteur depuis le compte du Vide-Grenier et rends l'objet au vendeur.")
+                    ok("Réclamation acceptée : rembourse l'acheteur depuis le compte de Le Black et rends l'objet au vendeur.")
                 if b2.button("Refuser (non couvert par la garantie)", key=f"ref{r['id']}"):
                     sb().table("reclamations").update({"decision": "refusee", "traite_par": membre()["id"], "traitee_le": maintenant()}).eq("id", r["id"]).execute()
                     sb().table("commandes").update({"statut": "livree"}).eq("id", c["id"]).execute()
@@ -623,9 +623,9 @@ def page_propositions():
             st.info(pr["texte"])
             st.caption(f"Reçue le {jolie_date(pr['created_at'])}")
             if pr["type"] == "vendre":
-                msg = f"Bonjour {pr['nom']}, c'est Le Vide-Grenier. Merci pour votre proposition ({pr['texte'][:60]}). Pouvez-vous nous envoyer une photo ?"
+                msg = f"Bonjour {pr['nom']}, c'est Le Black. Merci pour votre proposition ({pr['texte'][:60]}). Pouvez-vous nous envoyer une photo ?"
             else:
-                msg = f"Bonjour {pr['nom']}, c'est Le Vide-Grenier. Nous avons bien noté votre recherche : {pr['texte'][:60]}."
+                msg = f"Bonjour {pr['nom']}, c'est Le Black. Nous avons bien noté votre recherche : {pr['texte'][:60]}."
             st.link_button("💬 Lui écrire sur WhatsApp", f"https://wa.me/{numero_wa(pr['telephone'])}?text={quote(msg)}")
             c1, c2, c3 = st.columns(3)
             k = pr["id"]
@@ -744,7 +744,7 @@ def page_partenaires():
 def page_partenaire_accueil():
     m = membre()
     st.header(f"Bonjour {m['nom']} 👋")
-    st.caption(f"Vendeur partenaire du Vide-Grenier · commission du Vide-Grenier : {pct(m['taux_commission'])}")
+    st.caption(f"Vendeur partenaire de Le Black · commission de Le Black : {pct(m['taux_commission'])}")
     objets = sb().table("objets").select("statut").execute().data
     a_livrer = sb().table("commandes").select("id").eq("statut", "payee").execute().data
     a_recevoir = sb().table("vendeurs_a_payer").select("montant_a_verser").execute().data
@@ -757,9 +757,9 @@ def page_partenaire_accueil():
     st.markdown(
         "#### Comment ça marche\n"
         "1. **📥 Proposer un objet** : fiche + photos.\n"
-        f"2. Envoie une **courte vidéo de test** de l'objet au Vide-Grenier sur WhatsApp ({NUMERO_AFFICHE}).\n"
+        f"2. Envoie une **courte vidéo de test** de l'objet à Le Black sur WhatsApp ({NUMERO_AFFICHE}).\n"
         "3. Le garant vérifie et **publie** : l'objet apparaît sur la vitrine.\n"
-        "4. L'acheteur paie **Le Vide-Grenier**. Quand c'est payé, l'objet apparaît dans **🚚 À livrer**.\n"
+        "4. L'acheteur paie **Le Black**. Quand c'est payé, l'objet apparaît dans **🚚 À livrer**.\n"
         "5. Tu livres, tu cliques sur **Livré** : la garantie commence.\n"
         "6. Après la garantie, tu es payé par Mobile Money : prix de vente − commission.\n\n"
         "**Règles** : ne jamais encaisser l'acheteur toi-même · garder l'objet en bon état jusqu'à la livraison · "
@@ -825,7 +825,7 @@ def page_partenaire_objets():
 
 def page_partenaire_livraisons():
     st.header("À livrer")
-    st.caption("L'acheteur a payé Le Vide-Grenier. Livre-le, puis clique sur « Livré ».")
+    st.caption("L'acheteur a payé Le Black. Livre-le, puis clique sur « Livré ».")
     commandes = sb().table("commandes").select("*, objet:objets(id, code_vg, titre), acheteur:personnes(nom, telephone)") \
         .eq("statut", "payee").order("created_at").execute().data
     if not commandes:
@@ -833,9 +833,9 @@ def page_partenaire_livraisons():
     for c in commandes:
         o, a = c["objet"], c["acheteur"]
         with st.expander(f"{o['code_vg']} — {o['titre']} → {a['nom']} ({a['telephone']})", expanded=True):
-            st.warning("Ne demande **aucun argent** à l'acheteur : il a déjà payé Le Vide-Grenier.")
+            st.warning("Ne demande **aucun argent** à l'acheteur : il a déjà payé Le Black.")
             st.link_button("💬 Écrire à l'acheteur", f"https://wa.me/{numero_wa(a['telephone'])}?text="
-                           + quote(f"Bonjour {a['nom']}, je livre votre commande {o['code_vg']} du Vide-Grenier. Où et quand puis-je passer ?"))
+                           + quote(f"Bonjour {a['nom']}, je livre votre commande {o['code_vg']} de Le Black. Où et quand puis-je passer ?"))
             if st.button("📦 Livré à l'acheteur", key=f"pl{c['id']}", type="primary"):
                 sb().table("commandes").update({"statut": "livree", "date_livraison": maintenant(),
                                                 "livre_par": membre()["id"]}).eq("id", c["id"]).execute()

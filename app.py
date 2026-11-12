@@ -61,12 +61,14 @@ CATEGORIES = {
     "autre": "Autre",
 }
 ETATS = {"neuf": "Neuf", "bon": "Bon état", "use": "Usé"}
-FORMULES = {"depot": "Dépôt-vente (15 %, min. 500 FCFA)", "domicile": "Vente vérifiée à domicile (20 %, min. 1 000 FCFA)"}
+FORMULES = {"depot": "Dépôt-vente (15 %, min. 500 FCFA)", "domicile": "Vente vérifiée à domicile (20 %, min. 1 000 FCFA)",
+            "partenaire": "Vendeur partenaire (taux du partenaire)"}
 STATUTS_OBJET = {
     "propose": "Proposé", "refuse": "Refusé", "verifie": "Vérifié", "publie": "Publié",
     "reserve": "Réservé", "vendu": "Vendu (sous garantie)", "vendeur_paye": "Vendeur payé", "rendu": "Rendu au vendeur",
 }
-ROLES = {"garant": "Garant", "admin": "Admin", "verificateur": "Vérificateur", "livreur": "Livreur"}
+ROLES = {"garant": "Garant", "admin": "Admin", "verificateur": "Vérificateur", "livreur": "Livreur",
+         "commercial": "Vendeur partenaire"}
 
 
 # ---------- Outils ----------
@@ -95,9 +97,19 @@ def maintenant():
     return datetime.now(timezone.utc).isoformat()
 
 
-def commission(formule, prix):
+def commission(formule, prix, taux_partenaire=None):
+    if taux_partenaire is not None:
+        return round(prix * float(taux_partenaire))
     taux, minimum = (0.20, 1000) if formule == "domicile" else (0.15, 500)
     return max(round(prix * taux), minimum)
+
+
+def pct(x):
+    return f"{float(x) * 100:.0f} %"
+
+
+def villes():
+    return sb().table("villes").select("id, nom").eq("actif", True).order("nom").execute().data
 
 
 def garantie_txt(est_appareil):
@@ -110,6 +122,10 @@ def membre():
 
 def est_garant():
     return membre() and membre()["role"] in ("garant", "admin")
+
+
+def est_partenaire():
+    return membre() and membre()["role"] == "commercial"
 
 
 def ok(message):
@@ -294,6 +310,8 @@ def page_nouveau_depot():
     st.header("Nouveau dépôt")
     st.caption("Étape 1 du circuit : le vendeur propose son objet.")
     n = st.session_state.setdefault("depot_n", 0)  # change à chaque dépôt : le formulaire repart vide
+    liste_villes = villes()
+    ville = st.selectbox("Ville", liste_villes, format_func=lambda v: v["nom"], key=f"ville{n}")
     pid, nouvelle = choisir_ou_creer_personne(f"vendeur{n}", "Vendeur")
     st.divider()
     c1, c2 = st.columns(2)
@@ -302,7 +320,7 @@ def page_nouveau_depot():
     description = st.text_area("Description (marque, taille, couleur…)", key=f"desc{n}")
     c3, c4, c5 = st.columns(3)
     etat = c3.selectbox("État annoncé", list(ETATS), format_func=ETATS.get, index=1, key=f"etat{n}")
-    formule = c4.selectbox("Formule", list(FORMULES), format_func=FORMULES.get, key=f"form{n}")
+    formule = c4.selectbox("Formule", ["depot", "domicile"], format_func=FORMULES.get, key=f"form{n}")
     prix = c5.number_input("Prix demandé par le vendeur (FCFA)", min_value=0, step=500, key=f"prix{n}")
     est_appareil = st.checkbox("Appareil électrique ou téléphone (garantie 7 jours, test obligatoire)",
                                value=categorie == "electronique", key=f"app{n}_{categorie}")
@@ -313,11 +331,13 @@ def page_nouveau_depot():
         if not titre.strip():
             st.error("Indique le nom de l'objet.")
             st.stop()
+        if nouvelle is not None:
+            nouvelle["ville_id"] = ville["id"]
         vendeur_id = enregistrer_personne(pid, nouvelle)
         o = sb().table("objets").insert({
             "vendeur_id": vendeur_id, "titre": titre.strip(), "description": description.strip() or None,
             "categorie": categorie, "etat": etat, "formule": formule, "est_appareil": est_appareil,
-            "prix_demande": int(prix) or None,
+            "prix_demande": int(prix) or None, "ville_id": ville["id"],
             "date_depot": date.today().isoformat() if formule == "depot" else None,
         }).execute().data[0]
         st.session_state.depot_n = n + 1
@@ -327,12 +347,23 @@ def page_nouveau_depot():
 def page_verification():
     st.header("Vérification")
     st.caption("Étape 2 : tester l'objet, noter les défauts, puis le déclarer conforme ou le refuser.")
-    objets = sb().table("objets").select("*, vendeur:personnes(nom, telephone, piece_identite_vue)") \
+    objets = sb().table("objets").select("*, vendeur:personnes(nom, telephone, piece_identite_vue), ville:villes(nom)") \
         .eq("statut", "propose").order("created_at").execute().data
     if not objets:
         st.success("Aucun objet en attente de vérification.")
     for o in objets:
-        with st.expander(f"{o['code_vg']} — {o['titre']} ({o['vendeur']['nom']})"):
+        partenaire = o.get("commercial_id") is not None
+        etiquette = f" · 🤝 partenaire, {o['ville']['nom']}" if partenaire else ""
+        with st.expander(f"{o['code_vg']} — {o['titre']} ({o['vendeur']['nom']}){etiquette}"):
+            if partenaire:
+                st.info(f"Objet d'un **vendeur partenaire** ({o['ville']['nom']}) : vérification à distance par le garant, "
+                        f"sur les photos et la **vidéo de test** reçue sur WhatsApp. Commission : {pct(o['taux_commission'])}.")
+                if not est_garant():
+                    st.warning("Seul le garant ou un admin peut vérifier les objets des partenaires.")
+                    continue
+                st.link_button("💬 Demander la vidéo de test au partenaire",
+                               f"https://wa.me/{numero_wa(o['vendeur']['telephone'])}?text="
+                               + quote(f"Bonjour, c'est Le Vide-Grenier. Pour {o['code_vg']} ({o['titre']}), envoie-nous une courte vidéo qui montre l'objet en marche, sous tous les angles."))
             st.write(f"Catégorie : {CATEGORIES[o['categorie']]} · État annoncé : {ETATS[o['etat']]} · "
                      f"Prix demandé : {fcfa(o['prix_demande'])}")
             if o.get("description"):
@@ -347,13 +378,17 @@ def page_verification():
                     envoyer_photos(o, nouvelles)
                 st.session_state.photos_n = st.session_state.get("photos_n", 0) + 1
                 ok(f"Photos de {o['code_vg']} enregistrées.")
-            controles = [st.checkbox("Pièce d'identité du vendeur vue", value=o["vendeur"]["piece_identite_vue"], key=f"pi{k}")]
+            if partenaire:
+                controles = [st.checkbox("Photos nettes et fidèles (au moins une)", key=f"phok{k}"),
+                             st.checkbox("🎥 Vidéo de test reçue sur WhatsApp : l'objet fonctionne et correspond à la fiche", key=f"vid{k}")]
+            else:
+                controles = [st.checkbox("Pièce d'identité du vendeur vue", value=o["vendeur"]["piece_identite_vue"], key=f"pi{k}")]
             imei, preuve = None, False
-            if o["est_appareil"]:
+            if o["est_appareil"] and not partenaire:
                 imei = st.text_input("IMEI ou numéro de série", value=o.get("imei") or "", key=f"imei{k}")
                 preuve = st.checkbox("Facture ou boîte présentée, même IMEI que l'appareil", key=f"pr{k}")
                 controles += [preuve, st.checkbox("Testé : s'allume, charge, appels, caméra, écran, boutons", key=f"t{k}")]
-            else:
+            elif not partenaire:
                 controles.append(st.checkbox("Objet complet, propre, conforme à la description", key=f"c{k}"))
             defauts = st.text_input("Défauts constatés (seront écrits dans l'annonce)", key=f"d{k}")
             etat = st.selectbox("État constaté", list(ETATS), format_func=ETATS.get,
@@ -372,8 +407,9 @@ def page_verification():
                     sb().table("objets").update({
                         "statut": "verifie", "etat": etat, "defauts": defauts or None, "imei": imei or None,
                         "preuve_achat": preuve, "prix_vente": int(prix), "verifie_par": membre()["id"],
+                        "video_recue": partenaire,
                     }).eq("id", k).execute()
-                    if controles[0] and not o["vendeur"]["piece_identite_vue"]:
+                    if not partenaire and controles[0] and not o["vendeur"]["piece_identite_vue"]:
                         sb().table("personnes").update({"piece_identite_vue": True}).eq("id", o["vendeur_id"]).execute()
                     ok(f"{o['code_vg']} vérifié : il attend la validation du garant.")
             motif = c2.text_input("Motif du refus", key=f"m{k}")
@@ -401,7 +437,8 @@ def page_publication():
             st.code(texte_annonce(o), language=None)
             st.caption("Dans WhatsApp, joins ces photos à l'annonce (appui long sur une photo → enregistrer).")
             st.caption(f"Vendeur : {o['vendeur']['nom']} · Formule : {FORMULES[o['formule']]} · "
-                       f"Commission prévue : {fcfa(commission(o['formule'], o['prix_vente']))}")
+                       f"Commission prévue : {fcfa(commission(o['formule'], o['prix_vente'], o.get('taux_commission')))}"
+                       + (" · 🤝 vendeur partenaire" if o.get("commercial_id") else ""))
             if st.button("Valider et publier", key=f"pub{o['id']}", type="primary"):
                 sb().table("objets").update({"statut": "publie", "valide_par": membre()["id"]}).eq("id", o["id"]).execute()
                 st.session_state.a_partager = o["id"]
@@ -440,7 +477,7 @@ def page_commandes():
                 sb().table("objets").update({"statut": "reserve"}).eq("id", choix["id"]).execute()
                 ok(f"Commande enregistrée : écris « RÉSERVÉ » sous l'annonce {choix['code_vg']}.")
 
-    commandes = sb().table("commandes").select("*, objet:objets(id, code_vg, titre), acheteur:personnes(nom, telephone)") \
+    commandes = sb().table("commandes").select("*, objet:objets(id, code_vg, titre, commercial_id, vendeur:personnes(nom, telephone), ville:villes(nom)), acheteur:personnes(nom, telephone)") \
         .in_("statut", ["reservee", "payee"]).order("created_at").execute().data
     st.subheader("À encaisser et à livrer")
     if not commandes:
@@ -451,6 +488,16 @@ def page_commandes():
         etat = "💰 payée" if c["statut"] == "payee" else "⏳ pas encore payée"
         with st.expander(f"{o['code_vg']} — {o['titre']} → {c['acheteur']['nom']} ({c['acheteur']['telephone']}) · {fcfa(total)} · {etat}"):
             k = c["id"]
+            if o.get("commercial_id"):
+                part = o["vendeur"]
+                st.info(f"🤝 Objet d'un vendeur partenaire ({o['ville']['nom']}) : c'est **{part['nom']}** qui livre. "
+                        "L'acheteur paie toujours sur le compte du Vide-Grenier.")
+                if c["statut"] == "payee":
+                    st.link_button("💬 Demander la livraison au partenaire",
+                                   f"https://wa.me/{numero_wa(part['telephone'])}?text="
+                                   + quote(f"Bonjour, c'est Le Vide-Grenier. {o['code_vg']} ({o['titre']}) est payé. "
+                                           f"Merci de le livrer à {c['acheteur']['nom']} ({c['acheteur']['telephone']}) "
+                                           "et de cliquer sur « Livré » dans l'appli."))
             if c["statut"] == "reservee":
                 ref = st.text_input("Référence Mobile Money (ou « espèces »)", key=f"ref{k}")
                 b1, b2 = st.columns(2)
@@ -596,9 +643,9 @@ def page_propositions():
 def page_registre():
     st.header("Registre")
     st.caption("Chaque changement d'étape est noté automatiquement, avec la date et la personne.")
-    objets = sb().table("objets").select("id, code_vg, titre, statut, prix_vente, vendeur:personnes(nom)").order("id", desc=True).execute().data
+    objets = sb().table("objets").select("id, code_vg, titre, statut, prix_vente, vendeur:personnes(nom), ville:villes(nom)").order("id", desc=True).execute().data
     if objets:
-        st.dataframe(pd.DataFrame([{"Code": o["code_vg"], "Objet": o["titre"], "Vendeur": o["vendeur"]["nom"],
+        st.dataframe(pd.DataFrame([{"Code": o["code_vg"], "Ville": (o.get("ville") or {}).get("nom"), "Objet": o["titre"], "Vendeur": o["vendeur"]["nom"],
                                     "Prix": o["prix_vente"], "Étape": STATUTS_OBJET[o["statut"]]} for o in objets]),
                      hide_index=True, width="stretch")
         code = st.selectbox("Historique d'un objet", [o["code_vg"] for o in objets])
@@ -618,6 +665,7 @@ def page_equipe():
     st.header("Équipe")
     equipe = sb().table("equipe").select("*").order("id").execute().data
     st.dataframe(pd.DataFrame([{"Nom": e["nom"], "E-mail": e["email"], "Rôle": ROLES[e["role"]],
+                                "Commission": pct(e["taux_commission"]) if e["role"] == "commercial" else "",
                                 "Compte relié": "oui" if e["user_id"] else "pas encore", "Actif": e["actif"]} for e in equipe]),
                  hide_index=True, width="stretch")
     if membre()["role"] != "garant" and membre()["role"] != "admin":
@@ -628,14 +676,34 @@ def page_equipe():
         nom = c1.text_input("Nom")
         email = c2.text_input("E-mail")
         tel = c3.text_input("Téléphone")
-        role = c4.selectbox("Rôle", ["verificateur", "livreur", "admin"], format_func=ROLES.get)
+        role = c4.selectbox("Rôle", ["verificateur", "livreur", "admin", "commercial"], format_func=ROLES.get)
+        st.caption("Pour un **vendeur partenaire** d'une autre ville, remplis aussi :")
+        c5, c6, c7 = st.columns(3)
+        liste_villes = villes()
+        ville = c5.selectbox("Sa ville", liste_villes, format_func=lambda v: v["nom"]) if liste_villes else None
+        taux = c6.number_input("Ta commission sur ses ventes (%)", min_value=0, max_value=50, value=10, step=1)
+        caution = c7.number_input("Caution versée (FCFA)", min_value=0, step=5000, value=0)
         if st.form_submit_button("Ajouter"):
             if not nom.strip() or not email.strip():
                 st.error("Nom et e-mail obligatoires.")
+            elif role == "commercial" and (not tel.strip() or ville is None):
+                st.error("Pour un vendeur partenaire, le téléphone et la ville sont obligatoires.")
             else:
-                sb().table("equipe").insert({"nom": nom.strip(), "email": email.strip().lower(),
-                                             "telephone": tel or None, "role": role}).execute()
+                ligne = {"nom": nom.strip(), "email": email.strip().lower(), "telephone": tel or None, "role": role}
+                if role == "commercial":
+                    fiche = sb().table("personnes").insert({"nom": nom.strip(), "telephone": tel.strip(),
+                                                            "ville_id": ville["id"], "piece_identite_vue": True}).execute().data[0]
+                    ligne.update({"ville_id": ville["id"], "personne_id": fiche["id"],
+                                  "taux_commission": taux / 100, "caution_versee": int(caution)})
+                sb().table("equipe").insert(ligne).execute()
                 ok(f"{nom} ajouté. Il crée son mot de passe avec « Première connexion ».")
+    st.subheader("Villes")
+    st.write(", ".join(v["nom"] for v in villes()) or "Aucune ville.")
+    with st.form("ajout_ville", clear_on_submit=True):
+        nv = st.text_input("Nouvelle ville")
+        if st.form_submit_button("Ajouter la ville") and nv.strip():
+            sb().table("villes").insert({"nom": nv.strip()}).execute()
+            ok(f"Ville « {nv.strip()} » ajoutée.")
     st.subheader("Activer ou désactiver")
     autres = [e for e in equipe if e["role"] != "garant"]
     if autres:
@@ -643,6 +711,157 @@ def page_equipe():
         if st.button("Désactiver" if e["actif"] else "Réactiver"):
             sb().table("equipe").update({"actif": not e["actif"]}).eq("id", e["id"]).execute()
             ok("Modification enregistrée.")
+
+
+def page_partenaires():
+    st.header("Vendeurs partenaires")
+    st.caption("Les revendeurs des autres villes : ils stockent et livrent eux-mêmes ; tout le reste passe par toi.")
+    if not est_garant():
+        st.warning("Réservé au garant et aux admins.")
+        return
+    bilan = sb().table("bilan_partenaires").select("*").order("ville").execute().data
+    if not bilan:
+        st.info("Aucun vendeur partenaire. Ajoute-les dans la page « Équipe » (rôle « Vendeur partenaire »).")
+        return
+    st.dataframe(pd.DataFrame([{"Partenaire": b["nom"], "Ville": b["ville"], "Téléphone": b["telephone"],
+                                "Commission": pct(b["taux_commission"]), "Caution": b["caution_versee"],
+                                "Proposés": b["objets_proposes"], "En vente": b["en_vente"], "Vendus": b["vendus"],
+                                "Tes commissions": b["commissions_gagnees"], "Versé au partenaire": b["verse_au_partenaire"],
+                                "Actif": b["actif"]} for b in bilan]), hide_index=True, width="stretch")
+    st.subheader("Modifier la caution ou la commission")
+    b = st.selectbox("Partenaire", bilan, format_func=lambda b: f"{b['nom']} ({b['ville']})")
+    c1, c2 = st.columns(2)
+    caution = c1.number_input("Caution versée (FCFA)", min_value=0, step=5000, value=int(b["caution_versee"]))
+    taux = c2.number_input("Commission (%)", min_value=0, max_value=50, step=1, value=round(float(b["taux_commission"]) * 100))
+    st.caption("La nouvelle commission s'applique aux objets qu'il proposera ensuite, pas à ceux déjà en vente.")
+    if st.button("Enregistrer"):
+        sb().table("equipe").update({"caution_versee": int(caution), "taux_commission": taux / 100}).eq("id", b["partenaire_id"]).execute()
+        ok("Modification enregistrée.")
+
+
+# ---------- Écrans du vendeur partenaire ----------
+
+def page_partenaire_accueil():
+    m = membre()
+    st.header(f"Bonjour {m['nom']} 👋")
+    st.caption(f"Vendeur partenaire du Vide-Grenier · commission du Vide-Grenier : {pct(m['taux_commission'])}")
+    objets = sb().table("objets").select("statut").execute().data
+    a_livrer = sb().table("commandes").select("id").eq("statut", "payee").execute().data
+    a_recevoir = sb().table("vendeurs_a_payer").select("montant_a_verser").execute().data
+    compte = lambda *s: sum(1 for o in objets if o["statut"] in s)
+    c = st.columns(4)
+    c[0].metric("En attente de vérification", compte("propose", "verifie"))
+    c[1].metric("En vente", compte("publie"))
+    c[2].metric("À livrer", len(a_livrer))
+    c[3].metric("À recevoir", fcfa(sum(x["montant_a_verser"] for x in a_recevoir)))
+    st.markdown(
+        "#### Comment ça marche\n"
+        "1. **📥 Proposer un objet** : fiche + photos.\n"
+        f"2. Envoie une **courte vidéo de test** de l'objet au Vide-Grenier sur WhatsApp ({NUMERO_AFFICHE}).\n"
+        "3. Le garant vérifie et **publie** : l'objet apparaît sur la vitrine.\n"
+        "4. L'acheteur paie **Le Vide-Grenier**. Quand c'est payé, l'objet apparaît dans **🚚 À livrer**.\n"
+        "5. Tu livres, tu cliques sur **Livré** : la garantie commence.\n"
+        "6. Après la garantie, tu es payé par Mobile Money : prix de vente − commission.\n\n"
+        "**Règles** : ne jamais encaisser l'acheteur toi-même · garder l'objet en bon état jusqu'à la livraison · "
+        "pendant la garantie, reprendre l'objet si le garant accepte une réclamation."
+    )
+
+
+def page_partenaire_proposer():
+    m = membre()
+    st.header("Proposer un objet")
+    st.caption("L'objet reste chez toi. Le garant le vérifie sur tes photos et ta vidéo de test, puis le publie.")
+    n = st.session_state.setdefault("prop_n", 0)
+    c1, c2 = st.columns(2)
+    titre = c1.text_input("Objet (marque et modèle)", key=f"pt{n}")
+    categorie = c2.selectbox("Catégorie", list(CATEGORIES), format_func=CATEGORIES.get, key=f"pc{n}")
+    description = st.text_area("Description (taille, couleur, accessoires, défauts…)", key=f"pd{n}")
+    c3, c4 = st.columns(2)
+    etat = c3.selectbox("État", list(ETATS), format_func=ETATS.get, index=1, key=f"pe{n}")
+    prix = c4.number_input("Prix de vente souhaité (FCFA)", min_value=0, step=500, key=f"pp{n}")
+    est_appareil = st.checkbox("Appareil électrique ou téléphone (garantie 7 jours)", value=categorie == "electronique", key=f"pa{n}_{categorie}")
+    photos = st.file_uploader("Photos (1 à 4, nettes, fond uni)", type=["jpg", "jpeg", "png", "webp"],
+                              accept_multiple_files=True, key=f"pf{n}")
+    if prix:
+        com = commission("partenaire", prix, m["taux_commission"])
+        st.info(f"Si l'objet est vendu {fcfa(prix)} : commission {fcfa(com)}, tu reçois {fcfa(prix - com)}.")
+    if st.button("Envoyer au garant", type="primary"):
+        if not titre.strip() or not prix or not photos:
+            st.error("Indique l'objet, le prix et au moins une photo.")
+            st.stop()
+        o = sb().table("objets").insert({
+            "vendeur_id": m["personne_id"], "titre": titre.strip(), "description": description.strip() or None,
+            "categorie": categorie, "etat": etat, "est_appareil": est_appareil,
+            "prix_demande": int(prix), "prix_vente": int(prix),
+        }).execute().data[0]
+        with st.spinner("Envoi des photos…"):
+            envoyer_photos(o, photos)
+        st.session_state.prop_n = n + 1
+        st.session_state.video_pour = o["code_vg"]
+        ok(f"{o['code_vg']} envoyé au garant. Dernière étape : envoie la vidéo de test sur WhatsApp (bouton ci-dessous).")
+    if code := st.session_state.get("video_pour"):
+        st.link_button(f"🎥 Envoyer la vidéo de test de {code} sur WhatsApp",
+                       f"https://wa.me/{NUMERO_WHATSAPP}?text=" + quote(f"Vidéo de test pour {code} :"), type="primary")
+
+
+def page_partenaire_objets():
+    st.header("Mes objets")
+    objets = sb().table("objets").select("*").order("created_at", desc=True).execute().data
+    if not objets:
+        st.info("Tu n'as encore proposé aucun objet.")
+    for o in objets:
+        with st.expander(f"{o['code_vg']} — {o['titre']} · {fcfa(o['prix_vente'])} · {STATUTS_OBJET[o['statut']]}"):
+            montrer_photos(o.get("photos"), largeur=140)
+            if o["statut"] == "propose":
+                st.caption("En attente de la vérification du garant.")
+                if not o.get("video_recue"):
+                    st.link_button("🎥 Envoyer la vidéo de test sur WhatsApp",
+                                   f"https://wa.me/{NUMERO_WHATSAPP}?text=" + quote(f"Vidéo de test pour {o['code_vg']} :"))
+            elif o["statut"] == "refuse":
+                st.error(f"Refusé : {o.get('motif_refus') or 'voir avec le garant'}")
+            elif o["statut"] == "publie":
+                st.success("En vente sur la vitrine. Garde-le prêt à livrer.")
+
+
+def page_partenaire_livraisons():
+    st.header("À livrer")
+    st.caption("L'acheteur a payé Le Vide-Grenier. Livre-le, puis clique sur « Livré ».")
+    commandes = sb().table("commandes").select("*, objet:objets(id, code_vg, titre), acheteur:personnes(nom, telephone)") \
+        .eq("statut", "payee").order("created_at").execute().data
+    if not commandes:
+        st.success("Rien à livrer pour le moment.")
+    for c in commandes:
+        o, a = c["objet"], c["acheteur"]
+        with st.expander(f"{o['code_vg']} — {o['titre']} → {a['nom']} ({a['telephone']})", expanded=True):
+            st.warning("Ne demande **aucun argent** à l'acheteur : il a déjà payé Le Vide-Grenier.")
+            st.link_button("💬 Écrire à l'acheteur", f"https://wa.me/{numero_wa(a['telephone'])}?text="
+                           + quote(f"Bonjour {a['nom']}, je livre votre commande {o['code_vg']} du Vide-Grenier. Où et quand puis-je passer ?"))
+            if st.button("📦 Livré à l'acheteur", key=f"pl{c['id']}", type="primary"):
+                sb().table("commandes").update({"statut": "livree", "date_livraison": maintenant(),
+                                                "livre_par": membre()["id"]}).eq("id", c["id"]).execute()
+                sb().table("objets").update({"statut": "vendu"}).eq("id", o["id"]).execute()
+                ok(f"{o['code_vg']} livré. La garantie commence ; tu seras payé à la fin.")
+
+
+def page_partenaire_paiements():
+    st.header("Mes paiements")
+    attente = sb().table("vendeurs_a_payer").select("*").execute().data
+    st.subheader("Garantie terminée : paiement à venir")
+    if attente:
+        st.dataframe(pd.DataFrame([{"Objet": f"{v['code_vg']} {v['titre']}", "Vente": v["montant_vente"],
+                                    "Commission": v["commission"], "Tu recevras": v["montant_a_verser"]} for v in attente]),
+                     hide_index=True, width="stretch")
+    else:
+        st.caption("Rien en attente.")
+    st.subheader("Déjà reçus")
+    faits = sb().table("paiements_vendeurs").select("created_at, montant_vente, commission, montant_verse, reference_paiement") \
+        .order("created_at", desc=True).execute().data
+    if faits:
+        st.dataframe(pd.DataFrame([{"Date": jolie_date(p["created_at"]), "Vente": p["montant_vente"], "Commission": p["commission"],
+                                    "Reçu": p["montant_verse"], "Référence": p["reference_paiement"]} for p in faits]),
+                     hide_index=True, width="stretch")
+    else:
+        st.caption("Aucun paiement pour le moment.")
 
 
 # ---------- Application ----------
@@ -656,6 +875,12 @@ if "membre" not in st.session_state:
 
 m = membre()
 PAGES = {
+    "🏠 Accueil": page_partenaire_accueil,
+    "📥 Proposer un objet": page_partenaire_proposer,
+    "📦 Mes objets": page_partenaire_objets,
+    "🚚 À livrer": page_partenaire_livraisons,
+    "💰 Mes paiements": page_partenaire_paiements,
+} if est_partenaire() else {
     "📊 Tableau de bord": page_tableau_de_bord,
     "📨 Propositions": page_propositions,
     "📥 Nouveau dépôt": page_nouveau_depot,
@@ -665,6 +890,7 @@ PAGES = {
     "🛡️ Garanties": page_garanties,
     "💸 Vendeurs à payer": page_vendeurs_a_payer,
     "📒 Registre": page_registre,
+    "🤝 Partenaires": page_partenaires,
     "👥 Équipe": page_equipe,
 }
 with st.sidebar:

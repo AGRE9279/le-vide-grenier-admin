@@ -474,6 +474,18 @@ def page_publication():
             montrer_photos(o.get("photos"), largeur=140)
             bouton_whatsapp(o, f"wa{o['id']}")
             st.code(texte_annonce(o), language=None)
+            st.markdown("**Retirer cet objet de la vitrine**")
+            sur = st.checkbox("Je confirme le retrait", key=f"conf_retrait{o['id']}")
+            r1, r2 = st.columns(2)
+            if r1.button("⏸️ Retirer de la vente", key=f"retire{o['id']}", disabled=not sur,
+                         help="L'objet quitte la vitrine et revient dans « À publier ». Tu pourras le republier."):
+                sb().table("objets").update({"statut": "verifie"}).eq("id", o["id"]).execute()
+                ok(f"{o['code_vg']} retiré de la vitrine. Il attend en haut de cette page, prêt à être republié.")
+            if r2.button("↩️ Rendu au vendeur", key=f"rendu{o['id']}", disabled=not sur,
+                         help="Le vendeur a récupéré l'objet. Il quitte la vitrine pour de bon (il reste dans le Registre)."):
+                sb().table("objets").update({"statut": "rendu"}).eq("id", o["id"]).execute()
+                ok(f"{o['code_vg']} rendu au vendeur : il n'apparaît plus dans la vitrine.")
+            st.caption("Pense aussi à supprimer l'annonce dans ton statut ou tes groupes WhatsApp.")
 
 
 def page_commandes():

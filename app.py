@@ -20,18 +20,22 @@ MAX_PHOTOS = 4
 
 from pathlib import Path
 
-ICONE = Path(__file__).with_name("logo_icone.png")
-st.set_page_config(page_title="Blackist",
+# Le même code sert deux applis : « garant » (toi) et « equipe » (vérificateurs, livreurs, partenaires)
+ESPACE = st.secrets.get("ESPACE", "garant")
+# Couleur de fond du logo : rouge = garant, bleu = équipe & partenaires (vert = vitrine)
+FOND = "#C62828" if ESPACE == "garant" else "#1565C0"
+ICONE = Path(__file__).with_name("logo_icone_garant.png" if ESPACE == "garant" else "logo_icone_equipe.png")
+st.set_page_config(page_title="Blackist · " + ("Garant" if ESPACE == "garant" else "Équipe"),
                    page_icon=str(ICONE) if ICONE.exists() else "🏷️", layout="wide")
 
 BLEU, ORANGE = "#14365A", "#F08A24"
 MARQUE_SVG = (
     '<svg width="{t}" height="{t}" viewBox="0 0 140 126" role="img" aria-label="Logo Blackist">'
-    f'<path d="M8 58 L70 10 L132 58" fill="none" stroke="{ORANGE}" stroke-width="12" '
+    '<path d="M8 58 L70 10 L132 58" fill="none" stroke="#FFFFFF" stroke-width="12" '
     'stroke-linecap="round" stroke-linejoin="round"/>'
-    f'<rect x="24" y="52" width="92" height="66" rx="10" fill="{BLEU}"/>'
+    '<rect x="24" y="52" width="92" height="66" rx="10" fill="#FFFFFF"/>'
     '<text x="70" y="102" text-anchor="middle" font-family="\'Baloo 2\', sans-serif" font-weight="800" '
-    'font-size="46" fill="#FFFFFF">BK</text></svg>'
+    f'font-size="46" fill="{FOND}">BK</text></svg>'
 )
 
 
@@ -40,11 +44,12 @@ def logo(grand=True):
     t, nom, sous = (84, 46, 12) if grand else (48, 26, 9)
     st.markdown(
         "<style>@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap');</style>"
-        f'<div style="display:flex;align-items:center;gap:{t // 5}px;margin-bottom:8px">'
+        f'<div style="display:inline-flex;align-items:center;gap:{t // 5}px;margin-bottom:10px;'
+        f'background:{FOND};border-radius:16px;padding:{t // 7}px {t // 4}px {t // 7}px {t // 6}px">'
         + MARQUE_SVG.format(t=t) +
         '<div style="display:flex;flex-direction:column;line-height:1">'
-        f'<span style="font-family:\'Baloo 2\',sans-serif;font-weight:800;font-size:{nom}px;color:{BLEU}">Blackist</span>'
-        f'<span style="font-weight:600;font-size:{sous}px;letter-spacing:2px;text-transform:uppercase;color:#9A4A06;margin-top:4px">'
+        f'<span style="font-family:\'Baloo 2\',sans-serif;font-weight:800;font-size:{nom}px;color:#FFFFFF">Blackist</span>'
+        f'<span style="font-weight:600;font-size:{sous}px;letter-spacing:2px;text-transform:uppercase;color:#FFE9D2;margin-top:4px">'
         'Les bonnes affaires d’occasion</span></div></div>',
         unsafe_allow_html=True,
     )
@@ -52,8 +57,6 @@ def logo(grand=True):
 
 URL = st.secrets["SUPABASE_URL"]
 KEY = st.secrets["SUPABASE_KEY"]
-# Le même code sert deux applis : « garant » (toi) et « equipe » (vérificateurs, livreurs, partenaires)
-ESPACE = st.secrets.get("ESPACE", "garant")
 LIEN_GARANT = "https://blackist-garant.streamlit.app"
 LIEN_EQUIPE = "https://blackist-equipe.streamlit.app"
 NOM_ESPACE = "Espace garant" if ESPACE == "garant" else "Espace équipe & partenaires"
